@@ -10,6 +10,8 @@ rsa_key_size=4096
 data_path="./data/certbot"
 email="" # Adding a valid address is strongly recommended
 staging=0 # Set to 1 if you're testing your setup to avoid hitting request limits
+nginx_connect_max_tries=10 # If nginx takes a lot to start you can change this
+nginx_connected=0 # Change this to 1 to avoid the nginx check (not recommended)
 
 if [ -d "$data_path" ]; then
   read -p "Existing data found for $domains. Continue and replace existing certificate? (y/N) " decision
@@ -42,13 +44,32 @@ echo "### Starting nginx ..."
 docker-compose up --force-recreate -d nginx
 echo
 
+echo -n "### Checking nginx "
+for i in `seq 1 $nginx_connect_max_tries`;
+do
+    nc -vz 127.0.0.1 80 &>/dev/null
+    if [ $? == 0 ]; then
+        nginx_connected=1
+        break
+    fi
+    echo -n "."
+    sleep 1s
+done
+
+if [ $nginx_connected == 0 ]; then
+    echo "Couldn't connect to Nginx"
+    exit 1
+elif [ $nginx_connected == 1 ]; then
+    echo "Connection success"
+fi
+echo
+
 echo "### Deleting dummy certificate for $domains ..."
 docker-compose run --rm --entrypoint "\
   rm -Rf /etc/letsencrypt/live/$domains && \
   rm -Rf /etc/letsencrypt/archive/$domains && \
   rm -Rf /etc/letsencrypt/renewal/$domains.conf" certbot
 echo
-
 
 echo "### Requesting Let's Encrypt certificate for $domains ..."
 #Join $domains to -d args
